@@ -4,8 +4,9 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "start": "nodemon app.js",
-    "production": "node app.js"
+    "start": "git update-index --skip-worktree ../server/app.js; nodemon app.js",
+    "production": "node app.js",
+    "allow-changes": "git update-index --no-skip-worktree ../server/app.js"
   },
   "author": "Vedansh Agarwal",
   "license": "ISC",
