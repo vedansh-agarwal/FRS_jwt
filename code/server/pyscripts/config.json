@@ -1,0 +1,6 @@
+{
+    "face_ratio": 0.3, 
+    "threshold": 0.5, 
+    "model_1": "hog", 
+    "model_2": "cnn"
+}
