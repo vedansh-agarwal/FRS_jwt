@@ -54,7 +54,6 @@ const uploads_folder = path.join(user_images, "uploads");
 const attendance_foder = path.join(user_images, "attendance");
 const admin_log = path.join(log_files, "admin_activity_log.txt");
 const user_capture_log = path.join(log_files, "user_capture_log.txt");
-const user_change_log = path.join(log_files, "user_change_log.txt");
 
 const pyscripts_folder = path.join(frs_jwt_folder, "code", "server", "pyscripts");
 const add_user_script = path.join(pyscripts_folder, "add_user.py");
@@ -84,16 +83,29 @@ const checkAuth = async (req, res, next) => {
     }
 };
 
-function generateAdminLog() {
-
+function padding(str, len) {
+    if(str.length >= len) 
+        return str;
+    return (str+Array(len).join(" ")).substring(0, len);
 }
 
-function generateUserLog() {
-
+function generateAdminLog(adminName, message) {
+    var date = padding(new Date().toLocaleString(), 25);
+    var datalog = `\n${date}Username: ${padding(adminName, 25)}${message}.`;
+    fs.appendFileSync(admin_log, datalog);
 }
 
-function generateCaptureLog() {
-
+function generateCaptureLog(id, rec_stat, name) {
+    var date = padding(new Date().toLocaleString(), 25);
+    if(rec_stat === "unrecognized") {
+        var padded = padding(`Img ID:  ${id}`, 55);
+        var datalog = `\n${date}${padded}Denied passage through the facial recognition system.`;
+    }
+    else {
+        var padded = padding(`User ID: ${id}`, 55);
+        var datalog = `\n${date}${padded}${name} was granted passage through the facial recognition system.`;
+    }
+    fs.appendFileSync(user_capture_log, datalog);
 }
 
 function filterFiller(req_body) {
@@ -387,7 +399,7 @@ app.post("/api/admin/reset-password/:token", (req,res) => {
         }
     }
 
-    db.query("SELECT activation_status FROM admins WHERE email = ?", [email],
+    db.query("SELECT activation_status, username FROM admins WHERE email = ?", [email],
     (err, rows) => {
         if(err) {
             console.log(err);
@@ -399,11 +411,12 @@ app.post("/api/admin/reset-password/:token", (req,res) => {
         } else {
             var hashed_password = bcrypt.hashSync(newPassword, 10);
             db.query("UPDATE admins SET password = ? WHERE email = ?", [hashed_password, email],
-            (err, rows) => {
+            (err) => {
                 if(err) {
                     console.log(err);
                     return res.status(502).json({message: "Database Error"});
                 } else {
+                    generateAdminLog(rows[0].username, "Password Reset");
                     return res.status(200).json({message: "Password reset successfully."});
                 }
             });
@@ -437,7 +450,7 @@ app.post("/api/admin/recognize-face", checkAuth, (req, res) => {
         extension += base64img.substring(base64img.indexOf("/")+1, base64img.indexOf(";"));
     }
     if (extension !== ".png" && extension !== ".jpeg") {
-        // generateAdminLog(username, `Unsupported filetype: ${extension.substring(1)} input by the admin.`);
+        generateAdminLog(username, `Unsupported filetype: ${extension} input by the admin.`);
         return res.status(415).json({ message: "Unsupported filetype" });
     }
 
@@ -473,7 +486,7 @@ app.post("/api/admin/recognize-face", checkAuth, (req, res) => {
     const {errmsg, msg, usr_id, face_encoding} = python_response;
 
     if(errmsg) {
-        // generateAdminLog(username, `Image with ${errmsg} input by the admin`);
+        generateAdminLog(username, `Image with ${errmsg} input by the admin`);
         try {
             fs.unlinkSync(imgpath);
         } catch (err) {
@@ -482,7 +495,7 @@ app.post("/api/admin/recognize-face", checkAuth, (req, res) => {
         }
         return res.status(216).json({message: errmsg+" found"});
     } else {
-        // generateAdminLog(username, `Image with ${msg} user_id: ${usr_id} input by the admin`);
+        generateAdminLog(username, `Image for ${msg} user_id: ${usr_id} input by the admin`);
         var statusCode = msg === "existing user" ? 200 : 211;
         return res.status(statusCode).json({message: msg, user_id: usr_id, extension: extension, face_encoding: face_encoding});
     }
@@ -533,8 +546,7 @@ app.post("/api/admin/create-user", checkAuth, (req, res) => {
                 console.log(err);
                 return res.status(502).json({message: "File-System error."});
             }
-            // generateAdminLog();
-            // generateUserLog();
+            generateAdminLog(username, `User ${name} with User ID: ${user_id} created by the admin`);
             return res.status(200).json({message: `User created successfully with User ID: ${user_id}.`});
         }
     });
@@ -568,8 +580,7 @@ app.patch("/api/admin/update-user/:user_id", checkAuth, (req, res) => {
                     console.log(err);
                     return res.status(502).json({message: "File-System error."});
                 }
-                // generateAdminLog();
-                // generateUserLog();
+                generateAdminLog(username, `User ${name} with User ID: ${user_id} updated by the admin`);
                 return res.status(200).json({message: `User with User ID: ${user_id} updated successfully.`});
             }
         });
@@ -581,8 +592,7 @@ app.patch("/api/admin/update-user/:user_id", checkAuth, (req, res) => {
                 console.log(err);
                 return res.status(502).json({message: "Database Error"});
             } else {
-                // generateAdminLog();
-                // generateUserLog();
+                generateAdminLog(username, `User ${name} with User ID: ${user_id} updated by the admin`);
                 return res.status(200).json({message: `User with User ID: ${user_id} updated successfully.`});
             }
         });
@@ -612,8 +622,7 @@ app.delete("/api/admin/delete-user/:user_id", checkAuth, (req, res) => {
                 console.log(err);
                 return res.status(502).json({message: "File-System error."});
             }
-            // generateAdminLog();
-            // generateUserLog();
+            generateAdminLog(username, `User ${rows[0][0].name} with User ID: ${user_id} deleted by the admin`);
             return res.status(200).json({message: `User with User ID: ${user_id} deleted successfully.`});
         }
     });
@@ -751,11 +760,11 @@ app.post("/api/user/recognize-user", checkAuth, (req, res) => {
     
     python_response.result.forEach((user) => {
         var {user_id, name} = user;
-        // generateCaptureLog(user_id, "recognized", name);
+        generateCaptureLog(user_id, "recognized", name);
     });
     
     if (!python_response.result[0]) {
-        // generateCaptureLog(img, "unrecognized");
+        generateCaptureLog(image_name, "unrecognized");
     }
     
     return res.status(200).json({ users: python_response.result, imgpath: imgpath});
@@ -783,7 +792,7 @@ app.post("/api/user/attendance-recognition", checkAuth, (req, res) => {
                 extension += parts[parts.length - 1];
             }
             if (extension !== ".png" &&  extension !== ".jpeg") {
-                // generateAdminLog(username, "attendance-recognition", "Unsupported filetype");
+                generateAdminLog(username, `Unsupported filetype: ${extension} input by the admin.`);
                 return res.status(415).json({ message: "Unsupported filetype" });
             } else {
                 const image_name = uuidv4() + extension;
@@ -802,7 +811,7 @@ app.post("/api/user/attendance-recognition", checkAuth, (req, res) => {
             var image = images[i];
             var extension = "." + image.substring(image.indexOf("/")+1, image.indexOf(";"));
             if (extension !== ".png" && extension !== ".jpeg") {
-                // generateAdminLog(username, "attendance-recognition", "Unsupported filetype");
+                generateAdminLog(username, `Unsupported filetype: ${extension} input by the admin.`);
                 return res.status(415).json({ message: "Unsupported filetype" });
             }
             const image_name = uuidv4() + extension;

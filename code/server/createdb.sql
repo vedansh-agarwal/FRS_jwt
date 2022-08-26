@@ -87,8 +87,8 @@ DELIMITER ;
 DELIMITER $$
 CREATE PROCEDURE `delete_user`(IN usr_id VARCHAR(36), IN adm VARCHAR(50))
 BEGIN
-	SELECT `base_img` AS img FROM `users` WHERE (`user_id` = usr_id AND `admin` = adm);
-    DELETE FROM `users` WHERE (`user_id` = usr_id AND `admin` = adm);
+	SELECT `base_img` AS img, `name` FROM `users` WHERE (`user_id` = usr_id AND `admin` = adm);
+  DELETE FROM `users` WHERE (`user_id` = usr_id AND `admin` = adm);
 END$$
 DELIMITER ;
 

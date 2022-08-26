@@ -4,7 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "start": "git update-index --skip-worktree ../server/app.js; git update-index --skip-worktree ../server/.env; nodemon app.js",
+    "start": "sh ignore-files.sh",
     "production": "node app.js",
     "allow-dotenv": "git update-index --no-skip-worktree ../server/.env",
     "allow-changes": "git update-index --no-skip-worktree ../server/app.js"
