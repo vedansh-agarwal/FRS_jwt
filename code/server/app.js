@@ -59,6 +59,7 @@ const user_change_log = path.join(log_files, "user_change_log.txt");
 const pyscripts_folder = path.join(frs_jwt_folder, "code", "server", "pyscripts");
 const add_user_script = path.join(pyscripts_folder, "add_user.py");
 const recognize_user_script = path.join(pyscripts_folder, "recognize_user.py");
+const attendance_script = path.join(pyscripts_folder, "user_attendance.py");
 
 // Middlewares
 const checkAuth = async (req, res, next) => {
@@ -526,7 +527,7 @@ app.post("/api/admin/create-user", checkAuth, (req, res) => {
                 var fe_data = fs.readFileSync(fe_file);
                 fe_data = JSON.parse(fe_data);
                 fe_data[0][user_id] = face_encoding;
-                fe_data = JSON.stringify(fe_data).replaceAll("],", "],\n").replaceAll("{", "{\n").replaceAll("}", "\n}");
+                fe_data = JSON.stringify(fe_data).replaceAll("],", "],\n").replaceAll("{", "{\n").replaceAll("}", "\n}").replace("},[{", "},\n[{");
                 fs.writeFileSync(fe_file, fe_data);
             } catch (err) {
                 console.log(err);
@@ -561,7 +562,7 @@ app.patch("/api/admin/update-user/:user_id", checkAuth, (req, res) => {
                     var fe_data = fs.readFileSync(fe_file);
                     fe_data = JSON.parse(fe_data);
                     fe_data[user_id] = face_encoding;
-                    fe_data = JSON.stringify(fe_data).replaceAll("],", "],\n").replaceAll("{", "{\n").replaceAll("}", "\n}");
+                    fe_data = JSON.stringify(fe_data).replaceAll("],", "],\n").replaceAll("{", "{\n").replaceAll("}", "\n}").replace("},[{", "},\n[{");
                     fs.writeFileSync(fe_file, fe_data);
                 } catch (err) {
                     console.log(err);
@@ -761,7 +762,90 @@ app.post("/api/user/recognize-user", checkAuth, (req, res) => {
 });
 
 app.post("/api/user/attendance-recognition", checkAuth, (req, res) => {
-    res.send(req.body);
+    const {username, images} = req.body;
+    const {image_files} = req.files;
+
+    if(!images && !image_files) {
+        return res.status(403).json({message: "Insufficient data provided."});
+    }
+
+    var image_locations = [];
+    const fe_file = path.join(fe_folder, username+".json");
+
+    if(image_files) {
+        for(const image of image_files) {
+            var extension = ".";
+            if(image.name.includes(".")) {
+                var parts = image.name.split(".");
+                extension += parts[parts.length - 1];
+            } else {
+                var parts = image.mimetype.split("/");
+                extension += parts[parts.length - 1];
+            }
+            if (extension !== ".png" &&  extension !== ".jpeg") {
+                // generateAdminLog(username, "attendance-recognition", "Unsupported filetype");
+                return res.status(415).json({ message: "Unsupported filetype" });
+            } else {
+                const image_name = uuidv4() + extension;
+                const image_path = path.join(attendance_foder, image_name);
+                try {
+                    fs.writeFileSync(image_path, image.data);
+                    image_locations.push(image_path);
+                } catch(err) {
+                    console.log(err);
+                    return res.status(502).json({message: "Error uploading the image."});
+                }
+            }
+        }
+    } else {
+        for(var i = 0; i < images.length; i++) {
+            var image = images[i];
+            var extension = "." + image.substring(image.indexOf("/")+1, image.indexOf(";"));
+            if (extension !== ".png" && extension !== ".jpeg") {
+                // generateAdminLog(username, "attendance-recognition", "Unsupported filetype");
+                return res.status(415).json({ message: "Unsupported filetype" });
+            }
+            const image_name = uuidv4() + extension;
+            const image_path = path.join(attendance_foder, image_name);
+            try {
+                fs.writeFileSync(image_path, image.replace(/^data:image\/\w+;base64,/, ""), 'base64');
+                image_locations.push(image_path);
+            } catch(err) {
+                console.log(err);
+                return res.status(502).json({message: "Error uploading the image."});
+            }
+        }
+    }
+
+    var python_response = 0;
+    const process = spawnSync("python3", [attendance_script, image_locations, fe_file]);
+    try {
+        python_response = JSON.parse(String(process.stdout).replace(/'/g, '"'));
+    } catch(err) {
+        console.log(err);
+        console.log(String(process.stdout));
+        console.log(String(process.stderr));
+        return res.status(502).json({message: "Something went wrong with python script."});
+    }
+    res.status(200).json(python_response);
+    
+    python_response["recognizedNames"] = [];
+
+    python_response["recognizedPeople"].forEach((person) => {
+        python_response["recognizedNames"].push(person["name"]);
+    });
+  
+    delete python_response["recognizedPeople"];
+
+    python_response["time of upload"] = new Date().toLocaleString();
+    python_response["images"] = image_locations;
+    try {
+        fe_data = JSON.parse(fs.readFileSync(fe_file));
+        fe_data[1].push(python_response);
+        fs.writeFileSync(fe_file, JSON.stringify(fe_data).replaceAll("],", "],\n").replaceAll("{", "{\n").replaceAll("}", "\n}").replace("},[{", "},\n[{"));
+    } catch(err) {
+        console.log(err);
+    }
 });
 
 // Server Start
